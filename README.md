@@ -1,18 +1,26 @@
 
+# K-league Live Analytics Dashboard
 
-# Run and deploy your AI Studio app
+## 시작하기
 
-This contains everything you need to run your app locally.
+1. 저장소 클론
+```bash
+git clone https://github.com/accidentable/K-league-Hackathon.git
+cd K-league-Hackathon
+```
 
-View your app in AI Studio: https://ai.studio/apps/drive/1iJxnsG0rL4KXHjbSGqBA8MPfWSBpQMB_
+2. 의존성 설치
+```bash
+npm install
+```
 
-## Run Locally
+3. 개발 서버 실행
+```bash
+npm run dev
+```
 
-**Prerequisites:**  Node.js
+4. 브라우저에서 안내된 로컬 주소로 접속
 
+---
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+이 프로젝트는 Vite + React 기반으로 동작합니다.
