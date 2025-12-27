@@ -24,3 +24,5 @@ npm run dev
 ---
 
 이 프로젝트는 Vite + React 기반으로 동작합니다.
+
+git branch 추가
