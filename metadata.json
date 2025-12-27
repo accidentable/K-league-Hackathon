@@ -1,0 +1,5 @@
+{
+  "name": "K-League Live Analytics Dashboard",
+  "description": "A high-performance real-time data visualization overlay for K-League broadcasts, featuring player insights, performance hexagon charts, and live match streaming.",
+  "requestFramePermissions": []
+}
