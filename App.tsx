@@ -1,10 +1,12 @@
 
-import React, { useState, useCallback } from 'react';
-import { PLAYERS, MATCH_EVENTS } from './constants';
+
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { PLAYERS } from './constants';
 import PlayerCard from './components/PlayerCard';
 import VideoPlayer from './components/VideoPlayer';
-import PitchMap, { TrajectoryStep } from './components/PitchMap';
+import PitchMap from './components/PitchMap';
 import { MatchInfo, Player, MatchEvent } from './types';
+import { parseCsvToActions, parseEventsFromActions } from './csvUtils';
 
 const App: React.FC = () => {
   const [matchInfo] = useState<MatchInfo>({
@@ -16,49 +18,98 @@ const App: React.FC = () => {
     stadium: 'SEOUL WORLD CUP STADIUM'
   });
 
-  const [currentPlayer, setCurrentPlayer] = useState<Player>(PLAYERS[0]);
-  const [activeEvent, setActiveEvent] = useState<MatchEvent | null>(null);
-  const [trajectorySteps, setTrajectorySteps] = useState<TrajectoryStep[] | undefined>(undefined);
 
-  // 예시: 택티컬 로그 클릭 시 trajectorySteps로 여러 액션 시퀀스 전달
-  const handleEventClick = useCallback((event: MatchEvent) => {
-    setActiveEvent(event);
-    // 실제로는 CSV 파싱 후 getActionSequence로 추출해야 함
-    // 여기서는 예시 trajectorySteps를 임의로 생성
-    const exampleSteps: TrajectoryStep[] = [
-      {
-        color: '#c5a059',
-        path: [ { x: 30, y: 50 }, { x: 40, y: 55 } ],
-        label: '패스'
-      },
-      {
-        color: '#c5a059',
-        path: [ { x: 40, y: 55 }, { x: 55, y: 60 } ],
-        label: '패스 리시브'
-      },
-      {
-        color: '#c5a059',
-        path: [ { x: 55, y: 60 }, { x: 70, y: 65 } ],
-        label: '캐리'
-      },
-      {
-        color: '#c5a059',
-        path: [ { x: 70, y: 65 }, { x: 80, y: 50 } ],
-        label: '슈팅'
-      },
-    ];
-    setTrajectorySteps(exampleSteps);
-    // 선수 카드도 변경
-    const involvedPlayer = PLAYERS.find(p => p.id === event.playerId);
-    if (involvedPlayer) {
-      setCurrentPlayer(involvedPlayer);
-    }
-    // 5초 후 애니메이션 종료
-    setTimeout(() => {
-      setActiveEvent(null);
-      setTrajectorySteps(undefined);
-    }, exampleSteps.length * 1000 + 1000);
+  const [currentPlayer, setCurrentPlayer] = useState<Player>(PLAYERS[0]);
+  const [pitchPlayers, setPitchPlayers] = useState<Player[]>(PLAYERS);
+  const [activeEvent, setActiveEvent] = useState<MatchEvent | null>(null);
+  const [csvActions, setCsvActions] = useState<any[]>([]);
+  const [parsedEvents, setParsedEvents] = useState<any[]>([]);
+  const autoIdleTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  // CSV 불러오기 (최초 1회)
+  useEffect(() => {
+    fetch('./csv/example2.csv')
+      .then(res => res.text())
+      .then(text => {
+        const actions = parseCsvToActions(text);
+        setCsvActions(actions);
+        setParsedEvents(parseEventsFromActions(actions));
+      });
   }, []);
+
+
+  // 이벤트 클릭 시: 해당 이벤트의 action_id로 5개 전후 데이터 추출 → trajectory 생성
+  // action_id 기준 이벤트 전 5개만 추출
+  // 이벤트 클릭 시: 패스면 trajectory/activePlayerIds 세팅, 아니면 idle
+  const handleEventClick = useCallback((event: MatchEvent) => {
+    if (event.type?.toLowerCase() === 'pass') {
+      const found = csvActions.find(a => a.action_id === event.actionId);
+      if (found) {
+        // 패스 받은 선수 찾기: 다음 action_id에서 type_name이 'Pass Received'인 선수
+        const received = csvActions.find(a => a.action_id === found.action_id + 1 && a.type_name?.toLowerCase() === 'pass received');
+        // csv에서 직접 Player 객체 생성
+        const passerPlayer = {
+          id: found.player_id,
+          name: found.player_name,
+          engName: found.player_name,
+          position: '',
+          number: found.player_id ? String(found.player_id) : '',
+          team: found.team_name,
+          teamLogo: '',
+          photoUrl: '',
+          stats: [],
+          preferredPlays: [],
+          x: Number(found.start_x),
+          y: Number(found.start_y),
+        };
+        let receiverPlayer = undefined;
+        if (received) {
+          receiverPlayer = {
+            id: received.player_id,
+            name: received.player_name,
+            engName: received.player_name,
+            position: '',
+            number: received.player_id ? String(received.player_id) : '',
+            team: received.team_name,
+            teamLogo: '',
+            photoUrl: '',
+            stats: [],
+            preferredPlays: [],
+            x: Number(received.start_x),
+            y: Number(received.start_y),
+          };
+        }
+        const eventPlayers = [passerPlayer, receiverPlayer].filter(Boolean) as Player[];
+        setPitchPlayers(eventPlayers);
+        const trajectory = [
+          { x: Number(found.start_x), y: Number(found.start_y) },
+          { x: Number(found.end_x), y: Number(found.end_y) }
+        ];
+        const activePlayerIds = eventPlayers.map(p => p.id);
+        setActiveEvent({ ...event, trajectory, activePlayerIds });
+        // 선수 카드도 패스한 선수로
+        setCurrentPlayer(passerPlayer);
+      } else {
+        setActiveEvent(null);
+        setPitchPlayers(PLAYERS);
+      }
+    } else {
+      setActiveEvent(null);
+      setPitchPlayers(PLAYERS);
+    }
+    if (autoIdleTimeout.current) clearTimeout(autoIdleTimeout.current);
+    autoIdleTimeout.current = setTimeout(() => {
+      setActiveEvent(null);
+      setPitchPlayers(PLAYERS);
+    }, 30000); // 30초 후 자동 idle
+  }, [csvActions]);
+
+  // 전체 선수 보기(수동 idle 복귀) 핸들러
+  const handleShowAllPlayers = () => {
+    if (autoIdleTimeout.current) clearTimeout(autoIdleTimeout.current);
+    setActiveEvent(null);
+    setPitchPlayers(PLAYERS);
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#050b18] text-white selection:bg-[#c5a059] selection:text-[#050b18]">
@@ -99,10 +150,15 @@ const App: React.FC = () => {
 
           {/* Bottom: Tactical Pitch Map (Fixed Aspect) */}
           <PitchMap 
-            players={PLAYERS} 
+            players={pitchPlayers} 
             selectedId={currentPlayer.id} 
-            onSelectPlayer={(player) => setCurrentPlayer(player)}
-            trajectorySteps={trajectorySteps}
+            onSelectPlayer={(player) => {
+              if (!player) {
+                handleShowAllPlayers();
+              } else {
+                setCurrentPlayer(player);
+              }
+            }}
             activeEvent={activeEvent}
           />
         </aside>
@@ -158,8 +214,8 @@ const App: React.FC = () => {
           {/* Real-time Event Feed */}
           <div className="w-full max-w-6xl mx-auto mt-auto">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Tactical Log</h3>
-            <div className="space-y-2">
-              {MATCH_EVENTS.map((event) => (
+            <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+              {parsedEvents.map((event) => (
                 <div 
                   key={event.id}
                   onClick={() => handleEventClick(event)}
